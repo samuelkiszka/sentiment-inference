@@ -5,6 +5,8 @@ import numpy as np
 from datasets import load_dataset, concatenate_datasets, load_from_disk
 from transformers import DistilBertTokenizer, DistilBertModel
 
+DATA_MODEL =    768     # DistilBERT base hidden size
+N_CLASSES =     2       # Positive and Negative sentiment
 
 
 class DataLoader:
