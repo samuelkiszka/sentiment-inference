@@ -12,7 +12,7 @@ parser.add_argument("-m", "--mode", type=str, default='test', help="Mode: 'test'
 args = parser.parse_args()
 
 
-model = TransformerClassifier(d_model=768, num_layers=1, n_heads=1, d_ff=64, num_classes=2)
+model = TransformerClassifier(d_model=768, n_layers=1, n_heads=1, d_ff=64, n_classes=2)
 model.load(args.model_path)
 
 tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')

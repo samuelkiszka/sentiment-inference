@@ -1,6 +1,10 @@
 import numpy as np
 
 
+def softmax(x, eps=1e-9):
+    exp = np.exp(x - np.max(x, axis=-1, keepdims=True))
+    return exp / (exp.sum(axis=-1, keepdims=True) + eps)
+
 class MultiHeadAttention:
     def __init__(self, d_model, n_heads):
         self.n_heads = n_heads              # number of heads
@@ -8,62 +12,66 @@ class MultiHeadAttention:
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
         self.d_k = d_model // n_heads       # dimension per head
 
+        # Learnable linear projections
         self.W_Q = np.random.randn(d_model, n_heads * self.d_k) / np.sqrt(d_model)  # query matrix
         self.W_K = np.random.randn(d_model, n_heads * self.d_k) / np.sqrt(d_model)  # key matrix
         self.W_V = np.random.randn(d_model, n_heads * self.d_k) / np.sqrt(d_model)  # value matrix
         self.W_O = np.random.randn(n_heads * self.d_k, d_model) / np.sqrt(d_model)  # output matrix
 
+        # Gradient buffers
         self.dW_Q = np.zeros_like(self.W_Q)
         self.dW_K = np.zeros_like(self.W_K)
         self.dW_V = np.zeros_like(self.W_V)
         self.dW_O = np.zeros_like(self.W_O)
 
+        # Cache for backward pass
         self.cache = {}
-        self.X = None
+        self.x = None
 
-    def forward(self, X, mask=None):
-        if X.ndim == 2:
-            X = X[None]
-        self.X = X
-        batch_size, seq_len, d_model = X.shape
+    def forward(self, x, mask=None):
+        # Add batch dimension if missing
+        if x.ndim == 2:
+            x = x[None]
+        self.x = x
+        batch_size, seq_len, d_model = x.shape
 
-        # Linear projections
-        Q_lin = X @ self.W_Q
-        K_lin = X @ self.W_K
-        V_lin = X @ self.W_V
+        # ---- Linear projections ----
+        Q_lin = x @ self.W_Q
+        K_lin = x @ self.W_K
+        V_lin = x @ self.W_V
 
-        # Split into heads
+        # ---- Split into multiple heads ----
         Q = Q_lin.reshape(batch_size, seq_len, self.n_heads, self.d_k).transpose(0, 2, 1, 3)
         K = K_lin.reshape(batch_size, seq_len, self.n_heads, self.d_k).transpose(0, 2, 1, 3)
         V = V_lin.reshape(batch_size, seq_len, self.n_heads, self.d_k).transpose(0, 2, 1, 3)
 
-        # Apply attention on all heads
-        heads = []
-        weights = []
+        # ---- Scaled Dot-Product Attention for each head ----
+        head_outputs = []
+        attn_weights = []
         attn_caches = []
-        for i in range(self.n_heads):
-            out_h, w_h, cache_h = self.scaled_dot_product_attention(Q[:, i], K[:, i], V[:, i], mask)
-            heads.append(out_h)
-            weights.append(w_h)
+
+        for h in range(self.n_heads):
+            out_h, weight_h, cache_h = self.scaled_dot_product_attention(Q[:, h], K[:, h], V[:, h], mask)
+            head_outputs.append(out_h)
+            attn_weights.append(weight_h)
             attn_caches.append(cache_h)
 
-        # Concatenate heads
-        H = np.stack(heads, axis=1)
-        concat = H.transpose(0, 2, 1, 3).reshape(batch_size, seq_len, d_model)
+        # ---- Concatenate heads ----
+        heads = np.stack(head_outputs, axis=1)
+        concat = heads.transpose(0, 2, 1, 3).reshape(batch_size, seq_len, d_model)
+
+        # ---- Final linear projection ----
         out = concat @ self.W_O
 
-        self.cache = {
-            "Q_lin": Q_lin,
-            "K_lin": K_lin,
-            "V_lin": V_lin,
-            "Q": Q,
-            "K": K,
-            "V": V,
-            "weights": weights,
-            "attn_caches": attn_caches,
-            "concat": concat,
-            "mask": mask,
-        }
+        # store cache for backward pass
+        self.cache = dict(
+            Q_lin=Q_lin, K_lin=K_lin, V_lin=V_lin,
+            Q=Q, K=K, V=V,
+            weights=attn_weights,
+            attn_caches=attn_caches,
+            concat=concat,
+            mask=mask,
+        )
 
         return out
 
@@ -72,41 +80,42 @@ class MultiHeadAttention:
         concat = cache["concat"]
         batch_size, seq_len, d_model = d_out.shape
 
-        # Gradient w.r.t. W_O
+        # ---- Gradients w.r.t. W_O ----
         self.dW_O += concat.reshape(-1, d_model).T @ d_out.reshape(-1, d_model)
 
-        # Gradient w.r.t. concat
-        dconcat = d_out @ self.W_O.T
-        dH = dconcat.reshape(batch_size, seq_len, self.n_heads, self.d_k).transpose(0, 2, 1, 3)
+        # ---- Gradient w.r.t. concatenated heads ----
+        d_concat = d_out @ self.W_O.T
+        d_H = d_concat.reshape(batch_size, seq_len, self.n_heads, self.d_k).transpose(0, 2, 1, 3)
 
-        # accumulate gradients for Q_lin, K_lin, V_lin
-        dQ_lin = np.zeros_like(cache["Q_lin"])
-        dK_lin = np.zeros_like(cache["K_lin"])
-        dV_lin = np.zeros_like(cache["V_lin"])
+        # ---- Initialize gradients for Q, K, V linear projections ----
+        d_Q_lin = np.zeros_like(cache["Q_lin"])
+        d_K_lin = np.zeros_like(cache["K_lin"])
+        d_V_lin = np.zeros_like(cache["V_lin"])
 
+        # ---- Backprop through each head ----
         for h in range(self.n_heads):
-            dout_h = dH[:, h]
-            attn_cache = cache["attn_caches"][h]
-            dQh, dKh, dVh = self.scaled_dot_product_attention_backward(dout_h, *attn_cache)
+            d_out_h = d_H[:, h]
+            q_cache = cache["attn_caches"][h]
+            d_Qh, d_Kh, d_Vh = self.scaled_dot_product_attention_backward(d_out_h, *q_cache)
             start = h * self.d_k
             end = (h + 1) * self.d_k
-            dQ_lin[:, :, start:end] = dQh
-            dK_lin[:, :, start:end] = dKh
-            dV_lin[:, :, start:end] = dVh
+            d_Q_lin[:, :, start:end] = d_Qh
+            d_K_lin[:, :, start:end] = d_Kh
+            d_V_lin[:, :, start:end] = d_Vh
 
-        # Gradients w.r.t. projection weights
-        X = self.X
-        self.dW_Q += X.reshape(-1, d_model).T @ dQ_lin.reshape(-1, d_model)
-        self.dW_K += X.reshape(-1, d_model).T @ dK_lin.reshape(-1, d_model)
-        self.dW_V += X.reshape(-1, d_model).T @ dV_lin.reshape(-1, d_model)
+        # ---- Gradients w.r.t. projection weights ----
+        x = self.x
+        self.dW_Q += x.reshape(-1, d_model).T @ d_Q_lin.reshape(-1, d_model)
+        self.dW_K += x.reshape(-1, d_model).T @ d_K_lin.reshape(-1, d_model)
+        self.dW_V += x.reshape(-1, d_model).T @ d_V_lin.reshape(-1, d_model)
 
-        # Gradients w.r.t. W_Q, W_K, W_V
-        dX_Q = dQ_lin @ self.W_Q.T
-        dX_K = dK_lin @ self.W_K.T
-        dX_V = dV_lin @ self.W_V.T
+        # ---- Gradients w.r.t. input x ----
+        d_X_Q = d_Q_lin @ self.W_Q.T
+        d_X_K = d_K_lin @ self.W_K.T
+        d_X_V = d_V_lin @ self.W_V.T
 
-        dx = dX_Q + dX_K + dX_V
-        return dx
+        d_x = d_X_Q + d_X_K + d_X_V
+        return d_x
 
     def get_param_grads(self):
         # Note: Gradients for multi-head attention parameters are not implemented
@@ -116,10 +125,9 @@ class MultiHeadAttention:
             (self.W_V, self.dW_V),
             (self.W_O, self.dW_O),
         ]
-
-    def scaled_dot_product_attention(self, Q, K, V, mask=None):
-        assert Q.ndim in (2, 3) and Q.ndim == K.ndim == V.ndim
-
+    @staticmethod
+    def scaled_dot_product_attention(Q, K, V, mask=None):
+        # Add batch dimension if missing
         is_batch = Q.ndim == 3
         if not is_batch:
             Q = Q[None]
@@ -127,22 +135,30 @@ class MultiHeadAttention:
             V = V[None]
 
         batch, seq_len, d_k = Q.shape
+
+        # ---- Scaled dot-product attention ----
         scores = (Q @ K.transpose(0, 2, 1)) / np.sqrt(d_k)
 
-        scores += (~mask) * -1e9
+        # ---- Apply mask if provided ----
+        if mask is not None:
+            scores += (~mask) * -1e9
 
-        # Softmax
-        exp = np.exp(scores - scores.max(axis=-1, keepdims=True))
-        weights = exp / exp.sum(axis=-1, keepdims=True)
+        # ---- Softmax to get attention weights ----
+        weights = softmax(scores)
 
+        # ---- Weighted sum of values ----
         output = weights @ V
+
+        # Remove batch dimension if it was added
         if not is_batch:
             output = output[0]
             weights = weights[0]
-        cache = (Q, K, V, weights, mask)
+        cache = (Q, K, V, weights)
         return output, weights, cache
 
-    def scaled_dot_product_attention_backward(self, d_out, Q, K, V, weights, mask):
+    @staticmethod
+    def scaled_dot_product_attention_backward(d_out, Q, K, V, weights):
+        # add batch dimension if missing
         is_batch = Q.ndim == 3
         if not is_batch:
             Q = Q[None]
@@ -153,18 +169,23 @@ class MultiHeadAttention:
 
         batch_size, seq_len, d_k = Q.shape
 
-        # Gradient w.r.t. V
+        # ---- Gradient w.r.t. V ----
         dweights = d_out @ V.transpose(0, 2, 1)
+
+        # ---- Gradient w.r.t. weights ----
         dV = weights.transpose(0, 2, 1) @ d_out
 
-        # Softmax backward
+        # ---- Softmax backwards ----
         dscores = (dweights - (weights * dweights).sum(axis=-1, keepdims=True)) * weights
+
+        # ---- Scale back for the sqrt(d_k) factor ----
         dscores /= np.sqrt(d_k)
 
-        # Gradient w.r.t. Q and K
+        # ---- Gradient w.r.t. Q and K ----
         dQ = dscores @ K
         dK = dscores.transpose(0, 2, 1) @ Q
 
+        # remove batch dimension if it was added
         if not is_batch:
             dQ = dQ[0]
             dK = dK[0]
@@ -177,136 +198,164 @@ class LayerNorm:
     def __init__(self, d_model, eps=1e-6):
         self.d_model = d_model
         self.eps = eps
-        self.gama = np.ones(d_model)
+
+        # affine parameters
+        self.gamma = np.ones(d_model)
         self.beta = np.zeros(d_model)
-        self.dgama = np.zeros_like(self.gama)
+
+        # gradient buffers
+        self.dgamma = np.zeros_like(self.gamma)
         self.dbeta = np.zeros_like(self.beta)
-        self.cache = {}
 
-    def forward(self, X):
-        mean = X.mean(axis=-1, keepdims=True)
-        std = X.std(axis=-1, keepdims=True)
-        x_norm = (X - mean) / (std + self.eps)
+        # cache for backward pass
+        self.cache = None
 
-        out = self.gama * x_norm + self.beta
+    def forward(self, x):
+        # mean and std over last dimension
+        mu = x.mean(axis=-1, keepdims=True)
+        sigma = x.std(axis=-1, keepdims=True)
 
-        # Store cache for backward pass
-        self.cache = (X, mean, std, x_norm)
+        # normalize values
+        x_hat = (x - mu) / (sigma + self.eps)
+
+        # affine transformation
+        out = self.gamma * x_hat + self.beta
+
+        # store cache for backward pass
+        self.cache = dict(x=x, mu=mu, sigma=sigma, x_hat=x_hat)
 
         return out
 
     def backward(self, d_out):
-        X, mean, std, x_norm = self.cache
-        N = X.shape[-1]
+        cache = self.cache
+        x = cache['x']
+        mu = cache['mu']
+        sigma = cache['sigma']
+        x_hat = cache['x_hat']
 
-        axes = tuple(range(X.ndim-1))
+        D = x.shape[-1]                         # number of features normalized over
+        reduce_axes = tuple(range(x.ndim-1))
 
-        self.dgama += np.sum(d_out * x_norm, axis=axes)
-        self.dbeta += np.sum(d_out, axis=axes)
+        # ---- Gradients w.r.t. gamma and beta ----
+        self.dgamma += np.sum(d_out * x_hat, axis=reduce_axes)
+        self.dbeta += np.sum(d_out, axis=reduce_axes)
 
-        dx_norm = d_out * self.gama
-        dstd = np.sum(dx_norm * (X - mean) * (-0.5) * (std + self.eps) ** -3, axis=-1, keepdims=True)
-        dmean = np.sum(dx_norm * (-1 / (std + self.eps)), axis=-1, keepdims=True) + dstd * np.mean(-2 * (X - mean), axis=-1, keepdims=True)
+        # ---- Backprop through affine transformation ----
+        dx_hat = d_out * self.gamma
 
-        dx = dx_norm / (std + self.eps) + dstd * 2 * (X - mean) / N + dmean / N
+        # ---- Backprop through normalization ----
+        # derivative w.r.t. std
+        d_sigma = np.sum(dx_hat * (x - mu) * (-0.5) * (sigma + self.eps) ** -3, axis=-1, keepdims=True)
+        # derivative w.r.t. mean
+        d_mu = np.sum(dx_hat * (-1 / (sigma + self.eps)), axis=-1, keepdims=True) + d_sigma * np.mean(-2 * (x - mu), axis=-1, keepdims=True)
+        # derivative w.r.t. x
+        dx = dx_hat / (sigma + self.eps) + d_sigma * 2 * (x - mu) / D + d_mu / D
         return dx
 
     def get_param_grads(self):
-        return [(self.gama, self.dgama), (self.beta, self.dbeta)]
+        return [(self.gamma, self.dgamma), (self.beta, self.dbeta)]
 
     def clear_grads(self):
-        self.dgama.fill(0)
+        self.dgamma.fill(0)
         self.dbeta.fill(0)
 
 
 class EncoderBlock:
     def __init__(self, d_model, n_heads, d_ff):
-
+        # Multi-head self-attention model
         self.mha = MultiHeadAttention(d_model, n_heads)
+
+        # Layer norms
+        self.ln1 = LayerNorm(d_model)
+        self.ln2 = LayerNorm(d_model)
 
         # Feed-forward network parameters
         self.W1 = np.random.randn(d_model, d_ff)
         self.b1 = np.zeros(d_ff)
         self.W2 = np.random.randn(d_ff, d_model)
         self.b2 = np.zeros(d_model)
+
+        # Gradients
         self.dW1 = np.zeros_like(self.W1)
         self.db1 = np.zeros_like(self.b1)
         self.dW2 = np.zeros_like(self.W2)
         self.db2 = np.zeros_like(self.b2)
 
-        # Layer norms
-        self.ln1 = LayerNorm(d_model)
-        self.ln2 = LayerNorm(d_model)
+        # Stores intermediate values for backward pass
+        self.cache = None
 
-        # caches container
-        self.cache = {}
+    def forward(self, x, mask=None):
+        # ---- Multi-Head Attention ----
+        # self-attention
+        mha_out = self.mha.forward(x, mask)
 
-    def forward(self, X, mask=None):
-        self.cache.clear()
+        # residual connection 1
+        res1 = x + mha_out
 
-        # self-attention + residual + layer norm
-        self.cache["X_pre_mha"] = X.copy()
-        attn_out = self.mha.forward(X, mask)
-        self.cache["attn_out"] = attn_out
+        # layer norm 1
+        x_norm1 = self.ln1.forward(res1)
 
-        X1 = X + attn_out
-        out1 = self.ln1.forward(X1)
-        self.cache["out1"] = out1
+        # ---- Feed-Forward Network ----
+        # first linear projection
+        ffn_pre = x_norm1 @ self.W1 + self.b1
 
-        # feed-forward + residual + layer norm
-        pre1 = out1 @ self.W1 + self.b1
-        relu = np.maximum(0, pre1)
-        self.cache["pre1"] = pre1
-        self.cache["relu"] = relu
+        # ReLU activation
+        ffn_act = np.maximum(0, ffn_pre)
 
-        pre2 = relu @ self.W2 + self.b2
-        X2 = out1 + pre2
-        out2 = self.ln2.forward(X2)
-        return out2
+        # second linear projection
+        ffn_out = ffn_act @ self.W2 + self.b2
 
-    def backward(self, d_out):
-        # Backprop through second layer norm
-        dX2 = self.ln2.backward(d_out)
+        # residual connection 2
+        res2 = x_norm1 + ffn_out
 
-        # Backprop through feed-forward and residual
-        d_pre2 = dX2
+        # layer norm 2
+        x_norm2 = self.ln2.forward(res2)
 
-        # Gradients for W2 and b2
-        relu = self.cache["relu"]
-        bat_seq = d_pre2.reshape(-1, d_pre2.shape[-1])
-        relu_flat = relu.reshape(-1, relu.shape[-1])
+        # store cache for backward pass
+        self.cache = dict(x_norm1=x_norm1, ffn_pre=ffn_pre, ffn_act=ffn_act)
+        return x_norm2
+
+    def backward(self, d_block_out):
+        cache = self.cache
+        ffn_act = cache["ffn_act"]
+        ffn_pre = cache["ffn_pre"]
+        x_norm1 = cache["x_norm1"]
+
+        # ---- Backprop through layer norm 2 ----
+        d_x_norm2 = self.ln2.backward(d_block_out)
+
+        # ---- Backprop through FFN ----
+        # gradients for W2 and b2
+        dln2_cpy = d_x_norm2.copy()
+        bat_seq = dln2_cpy.reshape(-1, dln2_cpy.shape[-1])
+        relu_flat = ffn_act.reshape(-1, ffn_act.shape[-1])
         self.dW2 += relu_flat.T @ bat_seq
         self.db2 += bat_seq.sum(axis=0)
-
-        # Backprop through ReLU
-        d_relu = d_pre2 @ self.W2.T
-        d_pre1 = d_relu * (self.cache["pre1"] > 0)
-
-        # Gradients for W1 and b1
-        ff_in = self.cache["out1"]
-        ff_in_flat = ff_in.reshape(-1, ff_in.shape[-1])
-        d_pre1_flat = d_pre1.reshape(-1, d_pre1.shape[-1])
-        self.dW1 += ff_in_flat.T @ d_pre1_flat
+        # backprop to activation
+        d_ffn_act = d_x_norm2 @ self.W2.T
+        # backprop through ReLU
+        d_ffn_pre = d_ffn_act * (ffn_pre > 0)
+        # gradients for W1 and b1
+        ln1_out_flat = x_norm1.reshape(-1, x_norm1.shape[-1])
+        d_pre1_flat = d_ffn_pre.reshape(-1, d_ffn_pre.shape[-1])
+        self.dW1 += ln1_out_flat.T @ d_pre1_flat
         self.db1 += d_pre1_flat.sum(axis=0)
+        # gradient w.r.t. layer norm 1 output
+        d_ffn_input = d_ffn_pre @ self.W1.T
+        # combine gradients from residual connection
+        d_out1 = d_x_norm2 + d_ffn_input
 
-        # Backprop to out1
-        d_ff_in = d_pre1 @ self.W1.T
-        d_out1 = dX2 + d_ff_in
+        # ---- Backprop through layer norm 1 ----
+        d_x_norm1 = self.ln1.backward(d_out1)
 
-        # Backprop through first layer norm
-        dX1 = self.ln1.backward(d_out1)
+        # ---- Backprop through MHA ----
+        # backprop through multi-head attention
+        d_mha_out = d_x_norm1
+        d_mha_input = self.mha.backward(d_mha_out)
+        # combine gradients from residual connection
+        d_x = d_x_norm1 + d_mha_input
 
-        # split residual connection
-        d_attn_out = dX1
-        d_X_skip = dX1
-
-        # Backprop through multi-head attention
-        dx_from_mha = self.mha.backward(d_attn_out)
-
-        # Combine gradients
-        dX = d_X_skip + dx_from_mha
-
-        return dX
+        return d_x
 
     def get_param_grads(self):
         grads = []
@@ -335,17 +384,22 @@ class EncoderBlock:
 
 
 class Encoder:
-    def __init__(self, num_layers, d_model, n_heads, d_ff):
-        self.layers = [EncoderBlock(d_model, n_heads, d_ff) for i in range(num_layers)]
+    def __init__(self, d_model, num_layers, n_heads, d_ff):
+        self.layers = [                                     # stack of encoder blocks
+            EncoderBlock(d_model, n_heads, d_ff)
+            for _ in range(num_layers)
+        ]
 
-    def forward(self, X, mask=None):
-        if X.ndim == 2:
-            X = X[None]
+    def forward(self, x, mask=None):
+        # Add batch dimension if missing
+        if x.ndim == 2:
+            x = x[None]
 
         for layer in self.layers:
-            X = layer.forward(X, mask)
+            x = layer.forward(x, mask)
 
-        return X.squeeze(0) if X.shape[0] == 1 else X
+        # Remove batch dimension if it was added
+        return x.squeeze(0) if x.shape[0] == 1 else x
 
     def backward(self, d_out):
         for layer in reversed(self.layers):
@@ -365,16 +419,17 @@ class Encoder:
 
 class Classifier:
     def __init__(self, d_model, num_classes):
-        self.W = np.random.randn(d_model, num_classes) / np.sqrt(d_model)
-        self.b = np.zeros(num_classes)
-        # Backpropagation variables
-        self.enc_out = None
-        self.h = None
-        self.logits = None
-        self.dW = np.zeros_like(self.W)
-        self.db = np.zeros_like(self.b)
+        self.W = np.random.randn(d_model, num_classes) / np.sqrt(d_model)   # weights
+        self.b = np.zeros(num_classes)                                      # bias
 
-    def forward(self, enc_out, mask):
+        # backpropagation variables
+        self.enc_out = None                                                 # encoder output
+        self.h = None                                                       # pooled representation
+        self.logits = None                                                  # logits
+        self.dW = np.zeros_like(self.W)                                     # weight gradients
+        self.db = np.zeros_like(self.b)                                     # bias gradients
+
+    def forward(self, enc_out):
         self.enc_out = enc_out
 
         # mean pooling
@@ -383,11 +438,12 @@ class Classifier:
         else:
             self.h = enc_out.mean(axis=0)
 
+        # affine transformation
         self.logits = self.h @ self.W + self.b
 
         # softmax
-        exp = np.exp(self.logits - np.max(self.logits))
-        probs = exp / exp.sum(axis=-1, keepdims=True)
+        probs = softmax(self.logits)
+
         return probs
 
     def backward(self, d_logits):
@@ -401,12 +457,12 @@ class Classifier:
         # backward mean pooling
         if self.enc_out.ndim == 3:
             _, seq, _ = self.enc_out.shape
-            d_enc_out = np.repeat(dh[:, None, :], seq, axis=1) / seq
+            d_cls_out = np.repeat(dh[:, None, :], seq, axis=1) / seq
         else:
             seq = self.enc_out.shape[0]
-            d_enc_out = np.repeat(dh[None, :], seq, axis=0) / seq
+            d_cls_out = np.repeat(dh[None, :], seq, axis=0) / seq
 
-        return d_enc_out
+        return d_cls_out
 
     def get_param_grads(self):
         return [(self.W, self.dW), (self.b, self.db)]
@@ -417,18 +473,18 @@ class Classifier:
 
 
 class TransformerClassifier:
-    def __init__(self, num_layers, d_model, n_heads, d_ff, num_classes):
-        self.encoder = Encoder(num_layers, d_model, n_heads, d_ff)
-        self.classifier = Classifier(d_model, num_classes)
+    def __init__(self, d_model, n_layers, n_heads, d_ff, n_classes):
+        self.encoder = Encoder(d_model, n_layers, n_heads, d_ff)
+        self.classifier = Classifier(d_model, n_classes)
 
-    def forward(self, X, mask=None):
-        enc_out = self.encoder.forward(X, mask[:, None, :])
-        logits = self.classifier.forward(enc_out, mask)
+    def forward(self, x, mask=None):
+        enc_out = self.encoder.forward(x, mask[:, None, :] if mask is not None else None)
+        logits = self.classifier.forward(enc_out)
         return logits
 
     def backward(self, d_logits):
-        d_enc_out = self.classifier.backward(d_logits)
-        self.encoder.backward(d_enc_out)
+        d_cls_out = self.classifier.backward(d_logits)
+        self.encoder.backward(d_cls_out)
 
     def get_param_grads(self):
         return self.classifier.get_param_grads() + self.encoder.get_param_grads()

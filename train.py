@@ -8,7 +8,7 @@ import src.trainer as tr
 
 
 def train_model(dataset_size=250, n_layers=1, n_heads=1, d_ff=64,
-                epochs=50, batch_size=32, lr=2e-5, optimizer="sgd", note=None, save_plot=False):
+                epochs=50, batch_size=32, lr=2e-5, optimizer="sgd", note=None, save_plot=False, save_model=True):
     os.makedirs(f"results/sample_{dataset_size}", exist_ok=True)
     note_str = f"_{note}" if note else ""
     result_img_path = f"results/sample_{dataset_size}/sample_{dataset_size}_batch_{batch_size}_lr_{lr}{note_str}.png"
@@ -18,7 +18,7 @@ def train_model(dataset_size=250, n_layers=1, n_heads=1, d_ff=64,
     train_dataloader = DataLoader(split="train", batch_size=batch_size, num_per_class=dataset_size)
     test_dataloader = DataLoader(split="test", batch_size=batch_size, num_per_class=dataset_size)
 
-    model = te.TransformerClassifier(d_model=DATA_MODEL, num_layers=n_layers, n_heads=n_heads, d_ff=d_ff, num_classes=N_CLASSES)
+    model = te.TransformerClassifier(d_model=DATA_MODEL, n_layers=n_layers, n_heads=n_heads, d_ff=d_ff, n_classes=N_CLASSES)
     trainer = tr.Trainer(model, train_dataloader, test_dataloader, optimizer, lr=lr)
 
     train_stats = []
@@ -36,7 +36,7 @@ def train_model(dataset_size=250, n_layers=1, n_heads=1, d_ff=64,
         print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
         print(f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.4f}")
 
-        if test_acc > best_acc:
+        if save_model and test_acc > best_acc:
             best_acc = test_acc
             save_dir = f"models/sample_{dataset_size}"
             os.makedirs(save_dir, exist_ok=True)
@@ -91,14 +91,15 @@ def plot_results(sample_size, batch_size, train_stats, test_stats, time_sec, lr=
 
 if __name__ == "__main__":
     NUM_PER_CLASS = 250         # 500 total samples for training (250 positive, 250 negative)
-    N_LAYERS =      2           # 2 transformer encoder layers
-    N_HEADS =       4           # 4 attention heads per layer
+    N_LAYERS =      2           # number of transformer encoder layers
+    N_HEADS =       4           # number of attention heads per layer
     D_FF =          64          # Feedforward network dimension
-    EPOCHS =        20          # 20 training epochs
-    BATCH_SIZE =    32          # Batch size of 32
+    EPOCHS =        20          # number of training epochs
+    BATCH_SIZE =    32          # Batch size
     LR =            2e-5        # Learning rate
     OPTIM =         "adamw"     # Optimizer: 'adamw' or 'sgd'
     SAVE_PLOT =     True        # Save training plot
+    SAVE_MODEL =    True        # Save best model
     NOTE =          "l2h4b32"
 
     train_model(dataset_size=NUM_PER_CLASS,
@@ -110,4 +111,5 @@ if __name__ == "__main__":
                 lr=LR,
                 optimizer=OPTIM,
                 note=NOTE,
-                save_plot=SAVE_PLOT)
+                save_plot=SAVE_PLOT,
+                save_model=SAVE_MODEL)
