@@ -6,13 +6,20 @@ from transformers import DistilBertTokenizer, DistilBertModel
 import torch
 
 
+N_MODEL = 768   # Given by DistilBERT base hidden size
+N_CLASSES = 2   # Positive and Negative sentiment
+N_LAYERS = 2    # Default value from training
+N_HEADS = 4     # Default value from training
+D_FF = 64       # Default value from training
+
+
 parser = argparse.ArgumentParser(description="Review Classification Inference")
-parser.add_argument("-p", "--model_path", type=str, default='models/sample_250/best_model.npz', help='Path to the trained model file')
+parser.add_argument("-p", "--model_path", type=str, default='models/sample_250/best_model_l2h4ff64b32.npz', help='Path to the trained model file')
 parser.add_argument("-m", "--mode", type=str, default='test', help="Mode: 'test' for test set inference, 'interactive' for live input inference")
 args = parser.parse_args()
 
 
-model = TransformerClassifier(d_model=768, n_layers=1, n_heads=1, d_ff=64, n_classes=2)
+model = TransformerClassifier(d_model=N_MODEL, n_layers=N_LAYERS, n_heads=N_HEADS, d_ff=D_FF, n_classes=N_CLASSES)
 model.load(args.model_path)
 
 tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')

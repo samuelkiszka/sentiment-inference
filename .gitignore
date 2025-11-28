@@ -5,3 +5,4 @@ results/
 *.pyc
 .env
 .idea
+.venv/

@@ -90,17 +90,17 @@ def plot_results(sample_size, batch_size, train_stats, test_stats, time_sec, lr=
     plt.savefig(f"results/sample_{sample_size}/sample_{sample_size}_batch_{batch_size}_lr_{lr}{note_str}.png")
 
 if __name__ == "__main__":
-    NUM_PER_CLASS = 250         # 500 total samples for training (250 positive, 250 negative)
-    N_LAYERS =      2           # number of transformer encoder layers
-    N_HEADS =       4           # number of attention heads per layer
-    D_FF =          64          # Feedforward network dimension
-    EPOCHS =        20          # number of training epochs
-    BATCH_SIZE =    32          # Batch size
-    LR =            2e-5        # Learning rate
-    OPTIM =         "adamw"     # Optimizer: 'adamw' or 'sgd'
-    SAVE_PLOT =     True        # Save training plot
-    SAVE_MODEL =    True        # Save best model
-    NOTE =          "l2h4b32"
+    NUM_PER_CLASS = 250             # 500 total samples for training (250 positive, 250 negative) (default: 250)
+    N_LAYERS =      2               # number of transformer encoder layers (default: 2)
+    N_HEADS =       4               # number of attention heads per layer (default: 4)
+    D_FF =          64              # Feedforward network dimension (default: 64)
+    EPOCHS =        20              # number of training epochs (default: 20)
+    BATCH_SIZE =    32              # Batch size (default: 32)
+    LR =            2e-5            # Learning rate (default: 2e-5)
+    OPTIM =         "adamw"         # Optimizer: 'adamw' or 'sgd'
+    SAVE_PLOT =     True            # Save training plot
+    SAVE_MODEL =    True            # Save best model
+    NOTE =          "l2h4bff6432"   # number of layers, heads, batch size note for saving files (default: "l2h4ff64b32")
 
     train_model(dataset_size=NUM_PER_CLASS,
                 n_layers=N_LAYERS,
