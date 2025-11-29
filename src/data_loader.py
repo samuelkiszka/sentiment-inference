@@ -8,7 +8,6 @@ from transformers import DistilBertTokenizer, DistilBertModel
 DATA_MODEL =    768     # DistilBERT base hidden size
 N_CLASSES =     2       # Positive and Negative sentiment
 
-
 class DataLoader:
     def __init__(self, split="train", batch_size=32, num_per_class=250):
         self.split = split
@@ -44,13 +43,14 @@ class DataLoader:
             print(f"Loading existing embedded dataset from {path} ...")
             return load_from_disk(path)
 
-        # Create and embed dataset
+        # Prepare embedded dataset
         dataset = self.__get_dataset(num_per_class)
         encoded_dataset = self.__encode_dataset(dataset)
         embedded_dataset = self.__embed_dataset(encoded_dataset)
         return embedded_dataset
 
     def __get_dataset(self, num_per_class):
+        # Load full IMDB dataset
         dataset = load_dataset("imdb")
 
         def sample_class(split, label, n):
@@ -58,6 +58,7 @@ class DataLoader:
             ds = ds.shuffle().select(range(n))
             return ds
 
+        # Sample balanced dataset
         pos = sample_class(self.split, label=1, n=num_per_class)
         neg = sample_class(self.split, label=0, n=num_per_class)
         sample_dataset = concatenate_datasets([pos, neg]).shuffle(seed=42)
@@ -70,6 +71,7 @@ class DataLoader:
         def encode(examples):
             return tokenizer(examples['text'], truncation=True, padding='max_length', max_length=256)
 
+        # Tokenize data
         encoded = dataset.map(encode, batched=True)
         encoded.set_format(type='torch', columns=['input_ids', 'attention_mask', 'label'])
 
@@ -87,9 +89,12 @@ class DataLoader:
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask)
             return {'embeddings': outputs.last_hidden_state.cpu()}
 
+        # Generate dataset embeddings
         embedded = dataset.map(embed_batch, batched=True)
-
+        # Convert to numpy which is used later for training
         embedded.set_format(type='numpy', columns=['embeddings', 'attention_mask', 'label'])
+        # Save embedded dataset to disk for future use
+        os.makedirs(f"data/sample_{self.num_per_class}", exist_ok=True)
         embedded.save_to_disk(f"data/sample_{self.num_per_class}/{self.split}_embedded")
 
         return embedded

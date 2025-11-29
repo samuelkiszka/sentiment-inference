@@ -1,14 +1,31 @@
 import time
 import matplotlib.pyplot as plt
 import os
-
-from src.data_loader import DataLoader, DATA_MODEL, N_CLASSES
-import src.transformer_encoder as te
-import src.trainer as tr
+import argparse
 
 
-def train_model(dataset_size=250, n_layers=1, n_heads=1, d_ff=64,
-                epochs=50, batch_size=32, lr=2e-5, optimizer="sgd", note=None, save_plot=False, save_model=True):
+parser = argparse.ArgumentParser(description="Train Transformer Classifier for Review Classification")
+parser.add_argument("-d", "--dataset_size", type=int, default=250, help="Number of samples per class for training (default: 250)")
+parser.add_argument("-l", "--n_layers", type=int, default=2, help="Number of transformer encoder layers (default: 2)")
+parser.add_argument("-h", "--n_heads", type=int, default=4, help="Number of attention heads per layer (default: 4)")
+parser.add_argument("-f", "--d_ff", type=int, default=64, help="Feedforward network dimension (default: 64)")
+parser.add_argument("-e", "--epochs", type=int, default=20, help="Number of training epochs (default: 50)")
+parser.add_argument("-b", "--batch_size", type=int, default=32, help="Batch size (default: 32)")
+parser.add_argument("-r", "--lr", type=float, default=2e-5, help="Learning rate (default: 2e-5)")
+parser.add_argument("-o", "--optimizer", type=str, default="adamw", help="Optimizer: 'adamw' or 'sgd' (default: 'adamw')")
+parser.add_argument("-n", "--note", type=str, default="l2h4ff64b32", help="Note for saving files (default: 'l2h4ff64b32')")
+parser.add_argument("-s", "--save_plot", type=bool, default=True, help="Save training plot (default: True)")
+parser.add_argument("-m", "--save_model", type=bool, default=True, help="Save best model (default: True)")
+args = parser.parse_args()
+
+
+def train_model(dataset_size=250, n_layers=2, n_heads=4, d_ff=64,
+                epochs=20, batch_size=32, lr=2e-5, optimizer="adamw", note="l2h4ff64b32", save_plot=True, save_model=True):
+    # Import here to so that src modules are only loaded when needed
+    from src.data_loader import DataLoader, DATA_MODEL, N_CLASSES
+    import src.transformer_encoder as te
+    import src.trainer as tr
+
     os.makedirs(f"results/sample_{dataset_size}", exist_ok=True)
     note_str = f"_{note}" if note else ""
     result_img_path = f"results/sample_{dataset_size}/sample_{dataset_size}_batch_{batch_size}_lr_{lr}{note_str}.png"
@@ -90,17 +107,17 @@ def plot_results(sample_size, batch_size, train_stats, test_stats, time_sec, lr=
     plt.savefig(f"results/sample_{sample_size}/sample_{sample_size}_batch_{batch_size}_lr_{lr}{note_str}.png")
 
 if __name__ == "__main__":
-    NUM_PER_CLASS = 250             # 500 total samples for training (250 positive, 250 negative) (default: 250)
-    N_LAYERS =      2               # number of transformer encoder layers (default: 2)
-    N_HEADS =       4               # number of attention heads per layer (default: 4)
-    D_FF =          64              # Feedforward network dimension (default: 64)
-    EPOCHS =        20              # number of training epochs (default: 20)
-    BATCH_SIZE =    32              # Batch size (default: 32)
-    LR =            2e-5            # Learning rate (default: 2e-5)
-    OPTIM =         "adamw"         # Optimizer: 'adamw' or 'sgd'
-    SAVE_PLOT =     True            # Save training plot
-    SAVE_MODEL =    True            # Save best model
-    NOTE =          "l2h4bff6432"   # number of layers, heads, batch size note for saving files (default: "l2h4ff64b32")
+    NUM_PER_CLASS = args.dataset_size   # 500 total samples for training (250 positive, 250 negative) (default: 250)
+    N_LAYERS =      args.n_layers       # number of transformer encoder layers (default: 2)
+    N_HEADS =       args.n_heads        # number of attention heads per layer (default: 4)
+    D_FF =          args.d_ff           # Feedforward network dimension (default: 64)
+    EPOCHS =        args.epochs         # number of training epochs (default: 20)
+    BATCH_SIZE =    args.batch_size     # Batch size (default: 32)
+    LR =            args.lr             # Learning rate (default: 2e-5)
+    OPTIM =         args.optimizer      # Optimizer: 'adamw' or 'sgd'
+    SAVE_PLOT =     args.save_plot      # Save training plot
+    SAVE_MODEL =    args.save_model     # Save best model
+    NOTE =          args.note           # number of layers, heads, batch size note for saving files (default: "l2h4ff64b32")
 
     train_model(dataset_size=NUM_PER_CLASS,
                 n_layers=N_LAYERS,
