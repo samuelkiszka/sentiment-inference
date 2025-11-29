@@ -1,10 +1,8 @@
 echo "Download default model if not present..."
-echo "Default parameters:"
-echo "N_LAYERS: 2, N_HEADS: 4, D_FF: 64"
 
-MODEL_DIR="models/sample_250"
-MODEL_FILE="$MODEL_DIR/best_model_l2h4ff64.npz"
-DEFAULT_MODEL_URL="https://nextcloud.fit.vutbr.cz/s/inwnzKp6A39rbcD/download"
+MODEL_DIR="models"
+MODEL_FILE="$MODEL_DIR/default_model.npz"
+DEFAULT_MODEL_URL="https://nextcloud.fit.vutbr.cz/s/93fwg3bGGKGCzZP/download"
 
 if [ ! -f "$MODEL_FILE" ]; then
     echo "Default model not found. Downloading..."

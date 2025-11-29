@@ -72,14 +72,17 @@ class DataLoader:
             return tokenizer(examples['text'], truncation=True, padding='max_length', max_length=256)
 
         # Tokenize data
-        encoded = dataset.map(encode, batched=True)
+        encoded = dataset.map(encode, batched=True, batch_size=4)
         encoded.set_format(type='torch', columns=['input_ids', 'attention_mask', 'label'])
 
         return encoded
 
     def __embed_dataset(self, dataset):
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = DistilBertModel.from_pretrained("distilbert-base-uncased").to(device)
+
 
         def embed_batch(batch):
             input_ids = batch['input_ids'].to(device)
@@ -87,10 +90,14 @@ class DataLoader:
 
             with torch.no_grad():
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+
+            del input_ids, attention_mask, batch
+            torch.cuda.empty_cache()
+
             return {'embeddings': outputs.last_hidden_state.cpu()}
 
         # Generate dataset embeddings
-        embedded = dataset.map(embed_batch, batched=True)
+        embedded = dataset.map(embed_batch, batched=True, batch_size=4)
         # Convert to numpy which is used later for training
         embedded.set_format(type='numpy', columns=['embeddings', 'attention_mask', 'label'])
         # Save embedded dataset to disk for future use

@@ -12,8 +12,8 @@ D_FF = 64       # Default value from training
 
 
 parser = argparse.ArgumentParser(description="Review Classification Inference")
-parser.add_argument("-p", "--model_path", type=str, default='models/sample_250/best_model_l2h4ff64b32.npz', help='Path to the trained model file')
-parser.add_argument("-m", "--mode", type=str, default='test', help="Mode: 'test' for test set inference, 'interactive' for live input inference")
+parser.add_argument("-p", "--model_path", type=str, default='models/default_model.npz', help='Path to the trained model file')
+parser.add_argument("-m", "--mode", type=str, default='interactive', help="Mode: 'test' for test set inference, 'interactive' for live input inference (default: 'interactive')")
 parser.add_argument("-l", "--n_layers", type=int, default=N_LAYERS, help="Number of transformer encoder layers (default: 2)")
 parser.add_argument("-a", "--n_heads", type=int, default=N_HEADS, help="Number of attention heads per layer (default: 4)")
 parser.add_argument("-f", "--d_ff", type=int, default=D_FF, help="Feedforward network dimension (default: 64)")
@@ -63,7 +63,13 @@ def interactive_inference():
                 print(f"Overall Accuracy: {accuracy:.2f}%")
             break
 
-        review, correct_sentiment = text.split('|')
+        try:
+            review, correct_sentiment = text.split('|')
+            if not review or not correct_sentiment or correct_sentiment.strip() not in ['0', '1']:
+                raise ValueError
+        except ValueError:
+            print("Invalid input format. Please use 'review | sentiment'.")
+            continue
 
         # Tokenize and get embeddings
         inputs = tokenizer(review, return_tensors='pt', truncation=True, padding='max_length', max_length=512)

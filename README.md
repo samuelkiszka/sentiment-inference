@@ -36,18 +36,33 @@ In the process of training, further folders are created:
   - `results/`: Plots of training and validation metrics.
 
 ## Project setup
+(For SFC environment)
 
 ### Clone the repository
   ```bash
   git clone https://github.com/samuelkiszka/sentiment-inference.git
+  cd sentiment-inference
   ```
-   Go to the repository root.
+  You may need to install git first.
+
+
+### Prepare SFC environment
+It takes some time.
+  ```bash
+  sudo bash ./scripts/setup_sfc_env.sh
+  ```
+
 
 ### Setup the environment and install the required packages
+This is also slow, depending on the internet connection.
   ```bash
-  . ./scripts/setup_env.sh
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt
   ```
-   This will create and activate a virtual environment and install all required packages from `requirements.txt`. 
+   This will create a virtual environment and install all required packages from `requirements.txt`. 
+
+
 ### Train the model 
    First startup may take longer as the IMDB dataset and pre-trained transformer model for text embedding will be downloaded and cached.
   ```bash
@@ -62,6 +77,8 @@ In the process of training, further folders are created:
   ```bash
   . ./scripts/download_default_model.sh
   ```
+
+
 ### Classify new reviews:  
   ```bash
   python review_classification.py --mode [test | interactive]
@@ -69,4 +86,3 @@ In the process of training, further folders are created:
 You can test the model on new reviews [interactive], or check how it performs on test dataset [test].  
 You can change model parameters and path in the script or by adding command line arguments.  
 !!! But be aware that the model must be already trained and saved in the specified path with specified parameters.
-

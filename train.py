@@ -7,7 +7,7 @@ import argparse
 parser = argparse.ArgumentParser(description="Train Transformer Classifier for Review Classification")
 parser.add_argument("-d", "--dataset_size", type=int, default=250, help="Number of samples per class for training (default: 250)")
 parser.add_argument("-l", "--n_layers", type=int, default=2, help="Number of transformer encoder layers (default: 2)")
-parser.add_argument("-h", "--n_heads", type=int, default=4, help="Number of attention heads per layer (default: 4)")
+parser.add_argument("-a", "--n_heads", type=int, default=4, help="Number of attention heads per layer (default: 4)")
 parser.add_argument("-f", "--d_ff", type=int, default=64, help="Feedforward network dimension (default: 64)")
 parser.add_argument("-e", "--epochs", type=int, default=20, help="Number of training epochs (default: 50)")
 parser.add_argument("-b", "--batch_size", type=int, default=32, help="Batch size (default: 32)")
