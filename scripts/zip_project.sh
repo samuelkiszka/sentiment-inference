@@ -1,0 +1,1 @@
+zip xkiszk00.zip -r src/ scripts/ README.md requirements.txt review_classification.py xkiszk00_zprava.pdf train.py

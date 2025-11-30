@@ -81,8 +81,6 @@ This is also slow, depending on the internet connection.
 
 ### Classify new reviews:  
   ```bash
-  python review_classification.py --mode [test | interactive]
+  python review_classification.py
   ```
-You can test the model on new reviews [interactive], or check how it performs on test dataset [test].  
-You can change model parameters and path in the script or by adding command line arguments.  
 !!! But be aware that the model must be already trained and saved in the specified path with specified parameters.
